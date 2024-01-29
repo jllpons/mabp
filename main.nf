@@ -9,6 +9,8 @@ Author: Joan Lluis Pons Ramon
 params.ids = "$baseDir/ids.txt"
 params.outdir = "$baseDir/results"
 
+scripts_dir = "$baseDir/scripts"
+
 log.info """
 M a P B   P I P E L I N E
 =========================
@@ -16,7 +18,14 @@ UniProtKB IDs:    ${params.ids}
 Output directory: ${params.outdir}
 """
 
-process getAAandNTfastas {
+process AaNtFastas_from_UniprotIDs {
+    // Get the amino acid and nucleotide sequences from the UniprotKB IDs.
+    // Save them in two files: `aa.fasta` and `nt.fasta`.
+    // Fasta headers will appear as: `>UniprotAccession_ENAAccession`
+    // on both files.
+
+    conda "conda.yml"
+
     input:
     path ids
 
@@ -25,14 +34,14 @@ process getAAandNTfastas {
 
     script:
     """
-    cat ${ids}
+    $scripts_dir/ids2aant.py -h
     """
 }
 
 workflow {
     UniprotIDs_ch = Channel.fromPath(params.ids, checkIfExists: true)
-    IDsAAandNT_ch = getAAandNTfastas(UniprotIDs_ch)
-    IDsAAandNT_ch.view { it }
+    AaNtFastas_from_UniprotIDs_ch = AaNtFastas_from_UniprotIDs(UniprotIDs_ch)
+    AaNtFastas_from_UniprotIDs_ch.view { it }
 }
 
 workflow.onComplete {

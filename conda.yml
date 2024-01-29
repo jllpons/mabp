@@ -1,0 +1,5 @@
+name: mabp
+channels:
+  - conda-forge
+dependencies:
+  - requests
