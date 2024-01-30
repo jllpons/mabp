@@ -1,10 +1,10 @@
 #!/usr/bin/env nextflow
 
 /*
-Mapping and Analysis of Breakpoints in Proteins containing Segmented Domains
-
-Author: Joan Lluis Pons Ramon
-*/
+ * Mapping and Analysis of Breakpoints in Proteins containing Segmented Domains
+ *
+ * Author: Joan Lluis Pons Ramon
+ */
 
 params.ids = "$baseDir/ids.txt"
 params.outdir = "$baseDir/results"
@@ -18,11 +18,11 @@ UniProtKB IDs:    ${params.ids}
 Output directory: ${params.outdir}
 """
 
-process AaNtFastas_from_UniprotIDs {
-    // Get the amino acid and nucleotide sequences from the UniprotKB IDs.
-    // Save them in two files: `aa.fasta` and `nt.fasta`.
-    // Fasta headers will appear as: `>UniprotAccession_ENAAccession`
-    // on both files.
+/*
+ * Get the amino acid and nucleotide sequences from the UniprotKB IDs.
+ * Save them in two files: `aa.fasta` and `nt.fasta`.
+ */
+process fastas_from_UniprotIDs {
 
     conda "conda.yml"
 
@@ -30,18 +30,18 @@ process AaNtFastas_from_UniprotIDs {
     path ids
 
     output:
-    stdout
+    path "{params.outdir}/aa.fasta"
+    path "{params.outdir}/nt.fasta"
 
     script:
     """
-    $scripts_dir/ids2aant.py -h
+    $scripts_dir/ids2aant.py $ids -o {params.outdir}
     """
 }
 
 workflow {
-    UniprotIDs_ch = Channel.fromPath(params.ids, checkIfExists: true)
-    AaNtFastas_from_UniprotIDs_ch = AaNtFastas_from_UniprotIDs(UniprotIDs_ch)
-    AaNtFastas_from_UniprotIDs_ch.view { it }
+    ids_ch = Channel.fromPath(params.ids, checkIfExists: true)
+    (aa_fasta_ch, nt_fasta_ch) = fastas_from_UniprotIDs(ids_ch)
 }
 
 workflow.onComplete {
