@@ -396,9 +396,9 @@ def main():
     if not os.path.isdir(args.output):
         os.mkdir(args.output)
 
-    with open(f"{args.output}/ids_amino_fromUniProt.fasta", "w") as f:
+    with open(f"{args.output}/aa.fasta", "w") as f:
         f.write("\n".join([f"{p.generate_fasta_header()}\n{p.uniprot_aa_sequence}" for p in proteins]))
-    with open(f"{args.output}/ids_nucleotide_fromENA.fasta", "w") as f:
+    with open(f"{args.output}/nt.fasta", "w") as f:
         f.write("\n".join([f"{p.generate_fasta_header()}\n{p.ena_nucleotide_sequence}" for p in proteins]))
 
     if not args.quiet:
