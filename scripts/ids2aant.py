@@ -164,7 +164,7 @@ def read_ids(file: str) -> list:
         ids = f.read().splitlines()
 
     if not ids:
-        raise ValueError("Error: No IDs found.")
+        raise ValueError("[ids2aant.py] Error: No IDs found.")
 
     return ids
 
@@ -186,11 +186,11 @@ def validate_args(args: argparse.Namespace) -> None:
 
     if not args.file:
         if sys.stdin.isatty():
-            raise ValueError("Error: No input provided. Use -h for help.")
+            raise ValueError("[ids2aant.py] Error: No input provided. Use -h for help.")
         args.file = sys.stdin.read().splitlines()
     else:
         if not os.path.isfile(args.file):
-            raise FileNotFoundError(f"Error: '{args.file}' does not exist.")
+            raise FileNotFoundError(f"[ids2aant.py] Error: '{args.file}' does not exist.")
 
         try:
             args.file = read_ids(args.file)
@@ -222,7 +222,7 @@ def make_request_with_retries(url: str, retries=3, delay=1) -> requests.Response
         http = requests.Session()
         http.mount("https://", adapter)
 
-        response = http.get(url)
+        response = http.get(url, timeout=10)
 
         return response
 
@@ -248,7 +248,7 @@ def handle_uniprot_json_entry(json_entry: str) -> dict:
     entry_data = json.loads(json_entry)
 
     if entry_data["entryType"] == "Inactive":
-        raise ValueError(f"Warning: {entry_data['primaryAccession']} Uniprot entry is inactive."
+        raise ValueError(f"[ids2aant.py] Warning: {entry_data['primaryAccession']} Uniprot entry is inactive."
                         + " This protein will be skipped.")
 
 
@@ -272,7 +272,7 @@ def handle_uniprot_json_entry(json_entry: str) -> dict:
                 "uniprot_aa_sequence": uniprot_aa_sequence,
                 "ena_accession": ena_accession}
 
-    raise ValueError(f"Warning: {uniprot_accession} Uniprot entry is missing data."
+    raise ValueError(f"[ids2aant.py] Warning: {uniprot_accession} Uniprot entry is missing data."
                     + " This protein will be skipped.")
 
 
@@ -313,7 +313,7 @@ def get_uniprot_entry_data(uniprot_accession: str) -> dict:
         raise KeyError(str(e) + f" Url used: {url}\n")
 
     if not entry_data:
-        raise ValueError(f"Warning: {uniprot_accession} Uniprot entry is missing data."
+        raise ValueError(f"[ids2aant.py] Warning: {uniprot_accession} Uniprot entry is missing data."
                         + f" Url used: {url}\n")
 
     return entry_data
@@ -338,7 +338,7 @@ def get_ena_nucleotide_sequence(ena_accession: str) -> str:
     response = make_request_with_retries(url)
 
     if response.status_code != 200:
-        raise requests.exceptions.RequestException(f"Warning: request to {url} "
+        raise requests.exceptions.RequestException(f"[ids2aant.py] Warning: request to {url} "
                          + f"failed with status code {response.status_code}."
                          + f"Reason: {response.reason}. {ena_accession} "
                          + "will be skipped.\n")
@@ -348,7 +348,7 @@ def get_ena_nucleotide_sequence(ena_accession: str) -> str:
         return {"header": fasta_sequence[0].strip(),
                 "sequence": "".join(fasta_sequence[1:]).replace("\n", "")}
 
-    raise ValueError(f"Warning: {url} for {ena_accession} does not return a FASTA sequence.")
+    raise ValueError(f"[ids2aant.py] Warning: {url} for {ena_accession} does not return a FASTA sequence.")
 
 
 def main():
@@ -389,7 +389,7 @@ def main():
 
     proteins = [p for p in proteins if p.is_valid()]
     if len(proteins) == 0:
-        eprint("Error: No remaining proteins to process.")
+        eprint("[ids2aant.py] Error: No remaining proteins to process.")
         sys.exit(1)
 
 
@@ -402,7 +402,7 @@ def main():
         f.write("\n".join([f"{p.generate_fasta_header()}\n{p.ena_nucleotide_sequence}" for p in proteins]))
 
     if not args.quiet:
-        eprint(f"Done. {len(proteins)} proteins processed.")
+        eprint(f"[ids2aant.py] Info: Done. {len(proteins)} proteins processed.")
     sys.exit(0)
 
 
