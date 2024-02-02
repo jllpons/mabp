@@ -8,6 +8,7 @@
 
 params.ids = "$baseDir/ids.txt"
 params.pdb = ""
+params.pfam = ""
 params.outdir = "$baseDir/results"
 
 scripts_dir = "$baseDir/scripts"
@@ -17,6 +18,7 @@ M a P B   P I P E L I N E
 =========================
 UniProtKB IDs:    ${params.ids}
 PDB code:         ${params.pdb}
+Pfam accession:   ${params.pfam}
 Output directory: ${params.outdir}
 """
 
@@ -78,12 +80,32 @@ process getPDBfile {
     """
 }
 
+process getPfamHmm {
+
+    publishDir params.outdir, mode: 'copy'
+
+    input:
+    val pfam
+
+    output:
+    path "${pfam}.hmm"
+
+    script:
+    """
+    wget https://www.ebi.ac.uk/interpro/wwwapi//entry/pfam/${pfam}?annotation=hmm -O ${pfam}.hmm.gz \
+    && gunzip ${pfam}.hmm.gz
+    """
+}
+
 workflow {
     ids_ch = Channel.fromPath(params.ids, checkIfExists: true)
     (aa_fasta_ch, nt_fasta_ch) = fastas_from_UniprotIDs(ids_ch)
 
     pdb_ch = Channel.value(params.pdb)
     pdb_file_ch = getPDBfile(pdb_ch)
+
+    pfam_ch = Channel.value(params.pfam)
+    pfam_hmm_ch = getPfamHmm(pfam_ch)
 }
 
 workflow.onComplete {
