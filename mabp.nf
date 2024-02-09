@@ -58,7 +58,7 @@ process fastas_from_UniprotIDs {
 
     script:
     """
-    $scripts_dir/upId2AaNt.py $ids
+    $scripts_dir/id2aant.py $ids
     """
 }
 
@@ -78,6 +78,27 @@ process getPDBfile {
     script:
     """
     wget https://files.rcsb.org/view/${pdb[0..3]}.pdb -O ${pdb[0..3]}.pdb
+    """
+}
+
+/*
+ * Get the solved residues from the PDB file.
+ */
+process getSolvedResidues {
+
+    conda "conda.yml"
+    publishDir params.outdir, mode: 'copy'
+
+    input:
+    path pdb_file
+    val pdb
+
+    output:
+    path "${pdb}_solved_residues.json"
+
+    script:
+    """
+    $scripts_dir/getSolvedRes.py $pdb_file ${pdb}
     """
 }
 
@@ -135,7 +156,7 @@ process pdbAaNt {
 
     script:
     """
-    echo "${uniprotIdFromPdb}" | $scripts_dir/upId2AaNt.py -p "pdb_"
+    echo "${uniprotIdFromPdb}" | $scripts_dir/id2aant.py -p "pdb_"
     """
 }
 
@@ -145,9 +166,10 @@ workflow {
 
     pdb_ch = Channel.value(params.pdb)
     pdb_file_ch = getPDBfile(pdb_ch)
+    solved_residues_ch = getSolvedResidues(pdb_file_ch, pdb_ch)
 
-    UniProtIdFromPdb_ch = pdb2UniProtID(pdb_ch)
-    (pdb_aa_fasta_ch, pdb_nt_fasta_ch) = pdbAaNt(UniProtIdFromPdb_ch)
+    uniProtIdFromPdb_ch = pdb2UniProtID(pdb_ch)
+    (pdb_aa_fasta_ch, pdb_nt_fasta_ch) = pdbAaNt(uniProtIdFromPdb_ch)
 
     pfam_ch = Channel.value(params.pfam)
     pfam_hmm_ch = getPfamHmm(pfam_ch)
