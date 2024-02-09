@@ -4,6 +4,7 @@
  * Mapping and Analysis of Breakpoints in Proteins containing Segmented Domains
  *
  * Author: Joan Lluis Pons Ramon
+ * Email:  <joanlluispons@gmail.com>
  */
 
 params.ids = "$baseDir/ids.txt"
@@ -80,6 +81,9 @@ process getPDBfile {
     """
 }
 
+/*
+ * Get the HMM profile from the Pfam accession and save it in a file.
+ */
 process getPfamHmm {
 
     publishDir params.outdir, mode: 'copy'
@@ -114,10 +118,13 @@ process pdb2UniProtID {
     """
 }
 
+/*
+ * Get the amino acid and nucleotide sequences from the PDB code.
+ * Save them in two files: `pdb_aa.fasta` and `pdb_nt.fasta`.
+ */
 process pdbAaNt {
 
     publishDir params.outdir, mode: 'copy'
-
 
     input:
     val uniprotIdFromPdb
