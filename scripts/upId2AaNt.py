@@ -6,7 +6,7 @@ UniProt and the nucleotide sequences from ENA. Then, it writes them in two
 fasta files. FASTA headers will appear as: `>UniprotAccession_ENAAccession`.
 Accepts IDs list from sdin or from file if -f is used.
 
-Usage:  ids2aant.py <FILE> [options]
+Usage:  ids2aant.py <FILE> [options] or cat <FILE> | ids2aant.py [options]
 
 Author: Joan Lluis Pons Ramon
 Email:  <joanlluispon@gmail.com>
@@ -23,7 +23,7 @@ from requests.adapters import HTTPAdapter, Retry
 from API_URL import UNIPROT_JSON_ENTRY, ENA_NUCLEOTIDE_FASTA_SEQUENCE
 
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 
 # <https://stackoverflow.com/questions/18275023/dont-show-long-options-twice-in-print-help-from-argparse>
@@ -100,7 +100,7 @@ def setup_argparse() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
             prog="ids2aant",
             formatter_class=fmt,
-            usage="ids2aant.py <FILE> [options]",
+            usage="ids2aant.py <FILE> [options] or cat <FILE> | ids2aant.py [options]",
             description="""
 Given a list of UniProt IDs, fetches the amino acid sequences from UniProt and
 the nucleotide sequences from ENA. Then, it writes them in two fasta files.
@@ -110,6 +110,7 @@ FASTA headers will appear as: `>UniprotAccession_ENAAccession`.
 Examples:
     ids2aant.py list.txt -o results
     cat list.txt | ids2aant.py
+    ids2aant.py list.txt -o results -p prefix
 
 For more information, visit <https://github.com/jllpons/mabp>.
             """,
@@ -120,7 +121,8 @@ For more information, visit <https://github.com/jllpons/mabp>.
             metavar="FILE",
             nargs="?",
             type=str,
-            help="File containing UniProt IDs separated by newlines. If not provided, it will be read from stdin.",
+            help="File containing UniProt IDs separated by newlines. If not \
+                  provided, it will be read from stdin.",
             )
     parser.add_argument(
             "-o",
@@ -128,7 +130,8 @@ For more information, visit <https://github.com/jllpons/mabp>.
             metavar="DIR",
             type=str,
             default=f"{os.getcwd()}",
-            help="Output directory. Default: current directory.",
+            help="Output directory. If it does not exist, it will be created. \
+                  Default: current working directory.",
             )
     parser.add_argument(
             "-V",
@@ -140,7 +143,16 @@ For more information, visit <https://github.com/jllpons/mabp>.
             "-q",
             "--quiet",
             action="store_true",
+            default=False,
             help="Do not print anything to stderr.",
+            )
+    parser.add_argument(
+            "-p",
+            "--prefix",
+            metavar="STR",
+            type=str,
+            default="",
+            help="Prefix to add to the FASTA headers.",
             )
 
     return parser
@@ -396,9 +408,9 @@ def main():
     if not os.path.isdir(args.output):
         os.mkdir(args.output)
 
-    with open(f"{args.output}/aa.fasta", "w") as f:
+    with open(f"{args.output}/{args.prefix}aa.fasta", "w") as f:
         f.write("\n".join([f"{p.generate_fasta_header()}\n{p.uniprot_aa_sequence}" for p in proteins]))
-    with open(f"{args.output}/nt.fasta", "w") as f:
+    with open(f"{args.output}/{args.prefix}nt.fasta", "w") as f:
         f.write("\n".join([f"{p.generate_fasta_header()}\n{p.ena_nucleotide_sequence}" for p in proteins]))
 
     if not args.quiet:
