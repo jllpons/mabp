@@ -218,6 +218,7 @@ def main():
         eprint(f"[getSolvedRes.py] Info: Process finished. The solved residues have been saved to '{output_file}'.")
         sys.exit(0)
 
+
 if __name__ == "__main__":
     main()
 
