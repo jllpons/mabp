@@ -45,8 +45,8 @@ if (params.pdb.length() != 5) {
  */
 process fastas_from_UniprotIDs {
 
-    publishDir params.outdir, mode: 'copy'
     conda "conda.yml"
+    publishDir params.outdir, mode: 'copy'
 
     input:
     path ids
@@ -57,7 +57,7 @@ process fastas_from_UniprotIDs {
 
     script:
     """
-    $scripts_dir/ids2aant.py $ids
+    $scripts_dir/upId2AaNt.py $ids
     """
 }
 
@@ -114,6 +114,24 @@ process pdb2UniProtID {
     """
 }
 
+process pdbAaNt {
+
+    publishDir params.outdir, mode: 'copy'
+
+
+    input:
+    val uniprotIdFromPdb
+
+    output:
+    path "pdb_aa.fasta"
+    path "pdb_nt.fasta"
+
+    script:
+    """
+    echo "${uniprotIdFromPdb}" | $scripts_dir/upId2AaNt.py -p "pdb_"
+    """
+}
+
 workflow {
     ids_ch = Channel.fromPath(params.ids, checkIfExists: true)
     (aa_fasta_ch, nt_fasta_ch) = fastas_from_UniprotIDs(ids_ch)
@@ -122,6 +140,7 @@ workflow {
     pdb_file_ch = getPDBfile(pdb_ch)
 
     UniProtIdFromPdb_ch = pdb2UniProtID(pdb_ch)
+    (pdb_aa_fasta_ch, pdb_nt_fasta_ch) = pdbAaNt(UniProtIdFromPdb_ch)
 
     pfam_ch = Channel.value(params.pfam)
     pfam_hmm_ch = getPfamHmm(pfam_ch)
