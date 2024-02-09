@@ -1,4 +1,11 @@
 #!/usr/bin/env bash
+# Given a PDB code, this script submits a job to the UniProt ID mapping service
+# and retrieves the results once the job is completed.
+#
+# Usage: pdb2UniprotID.sh [PDB_CODE] or echo PDB_CODE | pdb2UniprotID.sh
+#
+# Author: Joan Lluis Pons Ramon
+# Email:  <joanlluispons@gmail.com>
 
 # Function to get PDB code either from command-line argument or stdin
 get_pdb_code() {
