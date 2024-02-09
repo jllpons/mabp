@@ -6,7 +6,7 @@ UniProt and the nucleotide sequences from ENA. Then, it writes them in two
 fasta files. FASTA headers will appear as: `>UniprotAccession_ENAAccession`.
 Accepts IDs list from sdin or from file if -f is used.
 
-Usage:  ids2aant.py <FILE> [options] or cat <FILE> | ids2aant.py [options]
+Usage:  id2aant.py <FILE> [options] or cat <FILE> | id2aant.py [options]
 
 Author: Joan Lluis Pons Ramon
 Email:  <joanlluispon@gmail.com>
@@ -98,9 +98,9 @@ def setup_argparse() -> argparse.ArgumentParser:
     fmt = lambda prog: CustomHelpFormatter(prog)
 
     parser = argparse.ArgumentParser(
-            prog="ids2aant",
+            prog="id2aant",
             formatter_class=fmt,
-            usage="ids2aant.py <FILE> [options] or cat <FILE> | ids2aant.py [options]",
+            usage="id2aant.py <FILE> [options] or cat <FILE> | id2aant.py [options]",
             description="""
 Given a list of UniProt IDs, fetches the amino acid sequences from UniProt and
 the nucleotide sequences from ENA. Then, it writes them in two fasta files.
@@ -108,9 +108,9 @@ FASTA headers will appear as: `>UniprotAccession_ENAAccession`.
             """,
             epilog="""
 Examples:
-    ids2aant.py list.txt -o results
-    cat list.txt | ids2aant.py
-    ids2aant.py list.txt -o results -p prefix
+    id2aant.py list.txt -o results
+    cat list.txt | id2aant.py
+    id2aant.py list.txt -o results -p prefix
 
 For more information, visit <https://github.com/jllpons/mabp>.
             """,
@@ -121,8 +121,7 @@ For more information, visit <https://github.com/jllpons/mabp>.
             metavar="FILE",
             nargs="?",
             type=str,
-            help="File containing UniProt IDs separated by newlines. If not \
-                  provided, it will be read from stdin.",
+            help="UniProt IDs separated by newlines. Reads a file or from stdin.",
             )
     parser.add_argument(
             "-o",
@@ -130,14 +129,15 @@ For more information, visit <https://github.com/jllpons/mabp>.
             metavar="DIR",
             type=str,
             default=f"{os.getcwd()}",
-            help="Output directory. If it does not exist, it will be created. \
-                  Default: current working directory.",
+            help="Output directory. Created if it does not exist. Default: CWD.",
             )
     parser.add_argument(
-            "-V",
-            "--version",
-            action="version",
-            version=f"%(prog)s {__version__}",
+            "-p",
+            "--prefix",
+            metavar="STR",
+            type=str,
+            default="",
+            help="Specify a prefix for the output files.",
             )
     parser.add_argument(
             "-q",
@@ -147,12 +147,10 @@ For more information, visit <https://github.com/jllpons/mabp>.
             help="Do not print anything to stderr.",
             )
     parser.add_argument(
-            "-p",
-            "--prefix",
-            metavar="STR",
-            type=str,
-            default="",
-            help="Prefix to add to the FASTA headers.",
+            "-V",
+            "--version",
+            action="version",
+            version=f"%(prog)s {__version__}",
             )
 
     return parser
@@ -176,7 +174,7 @@ def read_ids(file: str) -> list:
         ids = f.read().splitlines()
 
     if not ids:
-        raise ValueError("[ids2aant.py] Error: No IDs found.")
+        raise ValueError("[id2aant.py] Error: No IDs found.")
 
     return ids
 
@@ -198,11 +196,11 @@ def validate_args(args: argparse.Namespace) -> None:
 
     if not args.file:
         if sys.stdin.isatty():
-            raise ValueError("[ids2aant.py] Error: No input provided. Use -h for help.")
+            raise ValueError("[id2aant.py] Error: No input provided. Use -h for help.")
         args.file = sys.stdin.read().splitlines()
     else:
         if not os.path.isfile(args.file):
-            raise FileNotFoundError(f"[ids2aant.py] Error: '{args.file}' does not exist.")
+            raise FileNotFoundError(f"[id2aant.py] Error: '{args.file}' does not exist.")
 
         try:
             args.file = read_ids(args.file)
@@ -260,7 +258,7 @@ def handle_uniprot_json_entry(json_entry: str) -> dict:
     entry_data = json.loads(json_entry)
 
     if entry_data["entryType"] == "Inactive":
-        raise ValueError(f"[ids2aant.py] Warning: {entry_data['primaryAccession']} Uniprot entry is inactive."
+        raise ValueError(f"[id2aant.py] Warning: {entry_data['primaryAccession']} Uniprot entry is inactive."
                         + " This protein will be skipped.")
 
 
@@ -284,7 +282,7 @@ def handle_uniprot_json_entry(json_entry: str) -> dict:
                 "uniprot_aa_sequence": uniprot_aa_sequence,
                 "ena_accession": ena_accession}
 
-    raise ValueError(f"[ids2aant.py] Warning: {uniprot_accession} Uniprot entry is missing data."
+    raise ValueError(f"[id2aant.py] Warning: {uniprot_accession} Uniprot entry is missing data."
                     + " This protein will be skipped.")
 
 
@@ -325,7 +323,7 @@ def get_uniprot_entry_data(uniprot_accession: str) -> dict:
         raise KeyError(str(e) + f" Url used: {url}\n")
 
     if not entry_data:
-        raise ValueError(f"[ids2aant.py] Warning: {uniprot_accession} Uniprot entry is missing data."
+        raise ValueError(f"[id2aant.py] Warning: {uniprot_accession} Uniprot entry is missing data."
                         + f" Url used: {url}\n")
 
     return entry_data
@@ -350,7 +348,7 @@ def get_ena_nucleotide_sequence(ena_accession: str) -> str:
     response = make_request_with_retries(url)
 
     if response.status_code != 200:
-        raise requests.exceptions.RequestException(f"[ids2aant.py] Warning: request to {url} "
+        raise requests.exceptions.RequestException(f"[id2aant.py] Warning: request to {url} "
                          + f"failed with status code {response.status_code}."
                          + f"Reason: {response.reason}. {ena_accession} "
                          + "will be skipped.\n")
@@ -360,7 +358,7 @@ def get_ena_nucleotide_sequence(ena_accession: str) -> str:
         return {"header": fasta_sequence[0].strip(),
                 "sequence": "".join(fasta_sequence[1:]).replace("\n", "")}
 
-    raise ValueError(f"[ids2aant.py] Warning: {url} for {ena_accession} does not return a FASTA sequence.")
+    raise ValueError(f"[id2aant.py] Warning: {url} for {ena_accession} does not return a FASTA sequence.")
 
 
 def main():
@@ -401,7 +399,7 @@ def main():
 
     proteins = [p for p in proteins if p.is_valid()]
     if len(proteins) == 0:
-        eprint("[ids2aant.py] Error: No remaining proteins to process.")
+        eprint("[id2aant.py] Error: No remaining proteins to process.")
         sys.exit(1)
 
 
@@ -414,7 +412,7 @@ def main():
         f.write("\n".join([f"{p.generate_fasta_header()}\n{p.ena_nucleotide_sequence}" for p in proteins]))
 
     if not args.quiet:
-        eprint(f"[ids2aant.py] Info: Done. {len(proteins)} proteins processed.")
+        eprint(f"[id2aant.py] Info: Done. {len(proteins)} proteins processed.")
     sys.exit(0)
 
 
