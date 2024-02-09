@@ -97,12 +97,31 @@ process getPfamHmm {
     """
 }
 
+/*
+ * Get the UniprotKB ID from the PDB code.
+ */
+process pdb2UniProtID {
+
+    input:
+    val pdb
+
+    output:
+    stdout
+
+    script:
+    """
+    echo "${pdb[0..3]}" | $scripts_dir/pdb2UniProtID.sh
+    """
+}
+
 workflow {
     ids_ch = Channel.fromPath(params.ids, checkIfExists: true)
     (aa_fasta_ch, nt_fasta_ch) = fastas_from_UniprotIDs(ids_ch)
 
     pdb_ch = Channel.value(params.pdb)
     pdb_file_ch = getPDBfile(pdb_ch)
+
+    UniProtIdFromPdb_ch = pdb2UniProtID(pdb_ch)
 
     pfam_ch = Channel.value(params.pfam)
     pfam_hmm_ch = getPfamHmm(pfam_ch)
