@@ -11,6 +11,7 @@ params.ids = "$baseDir/ids.txt"
 params.pdb = ""
 params.pfam = ""
 params.outdir = "$baseDir/results"
+params.threads = 1
 
 scripts_dir = "$baseDir/scripts"
 
@@ -21,6 +22,7 @@ UniProtKB IDs:    ${params.ids}
 PDB code:         ${params.pdb}
 Pfam accession:   ${params.pfam}
 Output directory: ${params.outdir}
+Threads for GARD: ${params.threads}
 """
 
 /*
@@ -266,13 +268,14 @@ process gard {
 
     input:
     path codon_alignment
+    val threads
 
     output:
     path "${codon_alignment}.GARD.json"
 
     script:
     """
-    hyphy gard ${codon_alignment} CPU=4
+    hyphy gard ${codon_alignment} CPU=${threads}
     """
 }
 
@@ -302,7 +305,7 @@ workflow {
 
     alignment_ch = hmmAlign(aa_with_pdb_fasta_ch, pfam_hmm_ch)
     codon_alignment_ch = pal2nal(alignment_ch, nt_with_pdb_fasta_ch)
-    gard(codon_alignment_ch)
+    gard(codon_alignment_ch, params.threads)
 }
 
 workflow.onComplete {
