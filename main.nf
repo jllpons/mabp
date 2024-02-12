@@ -187,6 +187,36 @@ process appendPdbAaNtToFasta {
     """
 }
 
+/*
+ * Fetch CATH information about the domain architecture of the PDB protein.
+ */
+process fetchCathInfo {
+
+    conda "conda.yml"
+    publishDir params.outdir, mode: 'copy'
+
+    input:
+    val pdb
+
+    output:
+    path "${pdb[0..3]}_cath_info.json"
+
+    /*
+     * Note: Here I'm using a `shell` block instead of a `script` block.
+     *       This is because I want to use both shell and Nextflow variables.
+     *       Shell variables are defined with `$`
+     *       Nextflow variables are defined with `!{...}`
+     */
+    shell:
+    '''
+    pdb_lower=$(echo "!{pdb[0..3]}" | tr '[:upper:]' '[:lower:]')
+    wget -O - "https://www.ebi.ac.uk/pdbe/api/mappings/$pdb_lower" | jq '.["'$pdb_lower'"].CATH' > "!{pdb[0..3]}_cath_info.json"
+    '''
+}
+
+/*
+ * Align the amino acid sequences with the Pfam HMM profile.
+ */
 process hmmAlign {
 
     conda "conda.yml"
@@ -205,6 +235,9 @@ process hmmAlign {
     """
 }
 
+/*
+ * Build the codon alignment from the aligned amino acid sequences and the nucleotide sequences.
+ */
 process pal2nal {
 
     conda "conda.yml"
@@ -223,6 +256,9 @@ process pal2nal {
     """
 }
 
+/*
+ * Run the GARD algorithm to detect recombination breakpoints in the codon alignment.
+ */
 process gard {
 
     conda "conda.yml"
@@ -250,6 +286,7 @@ workflow {
     pdb_ch = Channel.value(params.pdb)
     pdb_file_ch = getPDBfile(pdb_ch)
     solved_residues_ch = getSolvedResidues(pdb_file_ch, pdb_ch)
+    cath_info_ch = fetchCathInfo(pdb_ch)
 
     uniProtIdFromPdb_ch = pdb2UniProtID(pdb_ch)
     (pdb_aa_fasta_ch, pdb_nt_fasta_ch) = pdbAaNt(uniProtIdFromPdb_ch)
