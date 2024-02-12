@@ -4,3 +4,6 @@ channels:
 dependencies:
   - requests
   - biopython
+  - bioconda::hmmer
+  - bioconda::pal2nal
+  - bioconda::hyphy

@@ -44,7 +44,7 @@ if (params.pdb.length() != 5) {
  * Get the amino acid and nucleotide sequences from the UniprotKB IDs.
  * Save them in two files: `aa.fasta` and `nt.fasta`.
  */
-process fastas_from_UniprotIDs {
+process fastasFromUniprotIDs {
 
     conda "conda.yml"
     publishDir params.outdir, mode: 'copy'
@@ -98,7 +98,7 @@ process getSolvedResidues {
 
     script:
     """
-    $scripts_dir/getSolvedRes.py $pdb_file ${pdb}
+    $scripts_dir/getSolvedRes.py ${pdb_file} ${pdb}
     """
 }
 
@@ -135,16 +135,18 @@ process pdb2UniProtID {
 
     script:
     """
-    echo "${pdb[0..3]}" | $scripts_dir/pdb2UniProtID.sh
+    echo "${pdb[0..3]}" | ${scripts_dir}/pdb2UniProtID.sh
     """
 }
 
 /*
  * Get the amino acid and nucleotide sequences from the PDB code.
  * Save them in two files: `pdb_aa.fasta` and `pdb_nt.fasta`.
+ * Then, add the PDB code to the header of each sequence.
  */
 process pdbAaNt {
 
+    conda "conda.yml"
     publishDir params.outdir, mode: 'copy'
 
     input:
@@ -156,13 +158,94 @@ process pdbAaNt {
 
     script:
     """
-    echo "${uniprotIdFromPdb}" | $scripts_dir/id2aant.py -p "pdb_"
+    echo "${uniprotIdFromPdb}" | ${scripts_dir}/id2aant.py -p "pdb_"
     """
 }
 
+/*
+ * Append the PDB amino acid and nucleotide sequences to the UniprotKB sequences.
+ */
+process appendPdbAaNtToFasta {
+
+    publishDir params.outdir, mode: 'copy'
+
+    input:
+    path pdb_aa_fasta
+    path aa_fasta
+    path pdb_nt_fasta
+    path nt_fasta
+    val pdb
+
+    output:
+    path "aa_with_pdb.fasta"
+    path "nt_with_pdb.fasta"
+
+    script:
+    """
+    (cat $pdb_aa_fasta; echo; cat $aa_fasta) > aa_with_pdb.fasta &&
+    (cat $pdb_nt_fasta; echo; cat $nt_fasta) > nt_with_pdb.fasta
+    """
+}
+
+process hmmAlign {
+
+    conda "conda.yml"
+    publishDir params.outdir, mode: 'copy'
+
+    input:
+    path aa_with_pdb_fasta
+    path pfam_hmm
+
+    output:
+    path "alignment.fasta"
+
+    script:
+    """
+    hmmalign --outformat afa ${pfam_hmm} ${aa_with_pdb_fasta} | sed 's/\\./-/g' > alignment.fasta
+    """
+}
+
+process pal2nal {
+
+    conda "conda.yml"
+    publishDir params.outdir, mode: 'copy'
+
+    input:
+    path alignment
+    path nt_with_pdb_fasta
+
+    output:
+    path "codon_alignment.fasta"
+
+    script:
+    """
+    pal2nal.pl ${alignment} ${nt_with_pdb_fasta} -output fasta -codontable 11 > codon_alignment.fasta
+    """
+}
+
+process gard {
+
+    conda "conda.yml"
+    publishDir params.outdir, mode: 'copy'
+
+    input:
+    path codon_alignment
+
+    output:
+    path "${codon_alignment}.GARD.json"
+
+    script:
+    """
+    hyphy gard ${codon_alignment} CPU=4
+    """
+}
+
+/*
+ * Main workflow
+ */
 workflow {
     ids_ch = Channel.fromPath(params.ids, checkIfExists: true)
-    (aa_fasta_ch, nt_fasta_ch) = fastas_from_UniprotIDs(ids_ch)
+    (aa_fasta_ch, nt_fasta_ch) = fastasFromUniprotIDs(ids_ch)
 
     pdb_ch = Channel.value(params.pdb)
     pdb_file_ch = getPDBfile(pdb_ch)
@@ -170,9 +253,19 @@ workflow {
 
     uniProtIdFromPdb_ch = pdb2UniProtID(pdb_ch)
     (pdb_aa_fasta_ch, pdb_nt_fasta_ch) = pdbAaNt(uniProtIdFromPdb_ch)
+    (aa_with_pdb_fasta_ch, nt_with_pdb_fasta_ch) = appendPdbAaNtToFasta(pdb_aa_fasta_ch,
+                                                                        aa_fasta_ch,
+                                                                        pdb_nt_fasta_ch,
+                                                                        nt_fasta_ch,
+                                                                        pdb_ch)
 
     pfam_ch = Channel.value(params.pfam)
     pfam_hmm_ch = getPfamHmm(pfam_ch)
+
+
+    alignment_ch = hmmAlign(aa_with_pdb_fasta_ch, pfam_hmm_ch)
+    codon_alignment_ch = pal2nal(alignment_ch, nt_with_pdb_fasta_ch)
+    gard(codon_alignment_ch)
 }
 
 workflow.onComplete {
