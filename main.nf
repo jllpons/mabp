@@ -283,32 +283,70 @@ process gard {
  * Main workflow
  */
 workflow {
+    /*
+     * A) Take the list of UniprotKB IDs and generate 2 fasta files:
+     *    `aa.fasta`: Amino acid sequences, obtained from the UniprotKB database.
+     *    `nt.fasta`: Nucleotide sequences, obtained from the ENA database.
+     *
+     *    Fasta headers will appear as `>UniprotKBid_ENAid`.
+     */
     ids_ch = Channel.fromPath(params.ids, checkIfExists: true)
     (aa_fasta_ch, nt_fasta_ch) = fastasFromUniprotIDs(ids_ch)
 
+    /*
+     * B) Take the PDB code and:
+     *    B.1) Download the PDB file.
+     *    B.2) Get the solved residues from the PDB file.
+     *    B.3) Fetch CATH information about the domain architecture of the PDB protein.
+     *    B.4) Get the UniprotKB ID from the PDB code.
+     *        B.4.a) Generate 2 fasta files with the amino acid and nucleotide
+     *               sequences from the PDB code.
+     *        B.4.b) Concatenate the PDB amino acid and nucleotide sequences to
+     *               the UniprotKB sequences.
+     */
     pdb_ch = Channel.value(params.pdb)
+    // B.1
     pdb_file_ch = getPDBfile(pdb_ch)
+    // B.2
     solved_residues_ch = getSolvedResidues(pdb_file_ch, pdb_ch)
+    // B.3
     cath_info_ch = fetchCathInfo(pdb_ch)
-
+    // B.4
     uniProtIdFromPdb_ch = pdb2UniProtID(pdb_ch)
+    // B.4.a
     (pdb_aa_fasta_ch, pdb_nt_fasta_ch) = pdbAaNt(uniProtIdFromPdb_ch)
+    // B.4.b
     (aa_with_pdb_fasta_ch, nt_with_pdb_fasta_ch) = appendPdbAaNtToFasta(pdb_aa_fasta_ch,
                                                                         aa_fasta_ch,
                                                                         pdb_nt_fasta_ch,
                                                                         nt_fasta_ch,
                                                                         pdb_ch)
 
+    /*
+     * C) Take the Pfam accession and get the HMM profile.
+     */
     pfam_ch = Channel.value(params.pfam)
     pfam_hmm_ch = getPfamHmm(pfam_ch)
 
 
+    /*
+     * D.1) Align the amino acid sequences with the Pfam HMM profile.
+     *
+     * D.2) Build the codon alignment from the aligned amino acid sequences
+     *      and the nucleotide sequences.
+     *
+     * D.3) Run the GARD algorithm to detect recombination breakpoints in the
+     *      codon alignment.
+     */
+    // D.1
     alignment_ch = hmmAlign(aa_with_pdb_fasta_ch, pfam_hmm_ch)
+    // D.2
     codon_alignment_ch = pal2nal(alignment_ch, nt_with_pdb_fasta_ch)
+    // D.3
     gard(codon_alignment_ch, params.threads)
 }
 
 workflow.onComplete {
-    log.info (workflow.success ? "\ncoconut oil\n" : "Oops... something went wrong :(")
+    log.info (workflow.success ? "coconut oil\n" : "Oops... something went wrong :(")
 }
 
