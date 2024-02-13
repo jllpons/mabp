@@ -25,28 +25,19 @@ Output directory: ${params.outdir}
 Threads for GARD: ${params.threads}
 """
 
-/*
- * Create the output directory before running the pipeline.
- */
-outDir = new File(params.outdir)
-if (!outDir.exists()) {
-    outDir.mkdirs()
-}
 
-/*
- * Check that the PDB code contains the chain identifier.
- */
 if (params.pdb.length() != 5) {
     log.error "PDB code must contain the chain identifier. Example: 1A2BA"
     exit 1
 }
 
+outDir = new File(params.outdir)
+if (!outDir.exists()) {
+    outDir.mkdirs()
+}
 
-/*
- * Get the amino acid and nucleotide sequences from the UniprotKB IDs.
- * Save them in two files: `aa.fasta` and `nt.fasta`.
- */
-process fastasFromUniprotIDs {
+
+process retrieveSequencesFromUniProt {
 
     conda "conda.yml"
     publishDir params.outdir, mode: 'copy'
@@ -60,14 +51,215 @@ process fastasFromUniprotIDs {
 
     script:
     """
-    $scripts_dir/id2aant.py $ids
+    ${scripts_dir}/id2aant.py ${ids}
+    """
+}
+
+process mapPDBToUniProtID {
+
+    input:
+    val pdb
+
+    output:
+    stdout
+
+    script:
+    """
+    echo "${pdb[0..3]}" | ${scripts_dir}/pdb2UniProtID.sh
+    """
+}
+
+process generatePDBSequencesFasta {
+
+    conda "conda.yml"
+    publishDir params.outdir, mode: 'copy'
+
+    input:
+    val pdbMappedToUniProtID
+
+    output:
+    path "pdb_aa.fasta"
+    path "pdb_nt.fasta"
+
+    script:
+    """
+    echo "${pdbMappedToUniProtID}" | ${scripts_dir}/id2aant.py -p "pdb_"
+    """
+}
+
+process mergePDBWithUniProtSequences {
+
+    publishDir params.outdir, mode: 'copy'
+
+    input:
+    path pdb_aa_fasta
+    path aa_fasta
+    path pdb_nt_fasta
+    path nt_fasta
+
+    output:
+    path "aa_with_pdb.fasta"
+    path "nt_with_pdb.fasta"
+
+    script:
+    """
+    (cat $pdb_aa_fasta; echo; cat $aa_fasta) > aa_with_pdb.fasta &&
+    (cat $pdb_nt_fasta; echo; cat $nt_fasta) > nt_with_pdb.fasta
+    """
+}
+
+
+/*
+ * Subworkflow 1:
+ * =============
+ * Responsible for retrieving and preparing all sequence data required 
+ * for the analysis.
+ */
+workflow prepareSequenceData {
+
+    take:
+    ids
+    pdb
+
+    main:
+    (aa_fasta_ch, nt_fasta_ch) = retrieveSequencesFromUniProt(ids)
+
+    (pdb_aa_fasta_ch,
+     pdb_nt_fasta_ch) = mapPDBToUniProtID(pdb) | generatePDBSequencesFasta
+
+    (merged_aa_fasta_ch,
+     merged_nt_fasta_ch) = mergePDBWithUniProtSequences(pdb_aa_fasta_ch,
+                                                        aa_fasta_ch,
+                                                        pdb_nt_fasta_ch,
+                                                        nt_fasta_ch)
+
+    emit:
+    merged_aa_fasta_ch
+    merged_nt_fasta_ch
+
+}
+
+
+process fetchPfamHMMProfile {
+
+    publishDir params.outdir, mode: 'copy'
+
+    input:
+    val pfam
+
+    output:
+    path "${pfam}.hmm"
+
+    script:
+    """
+    wget https://www.ebi.ac.uk/interpro/wwwapi//entry/pfam/${pfam}?annotation=hmm -O ${pfam}.hmm.gz \
+    && gunzip ${pfam}.hmm.gz
+    """
+}
+
+process alignSequencesToPfamHMM {
+
+    conda "conda.yml"
+    publishDir params.outdir, mode: 'copy'
+
+    input:
+    path aa_with_pdb_fasta
+    path pfam_hmm
+
+    output:
+    path "alignment.fasta"
+
+    script:
+    """
+    hmmalign --outformat afa ${pfam_hmm} ${aa_with_pdb_fasta} | sed 's/\\./-/g' > alignment.fasta
+    """
+}
+
+process createCodonAlignment {
+
+    conda "conda.yml"
+    publishDir params.outdir, mode: 'copy'
+
+    input:
+    path alignment
+    path nt_with_pdb_fasta
+
+    output:
+    path "codon_alignment.fasta"
+
+    script:
+    """
+    pal2nal.pl ${alignment} ${nt_with_pdb_fasta} -output fasta -codontable 11 > codon_alignment.fasta
+    """
+}
+
+
+/*
+ * Subworkflow 2:
+ * =============
+ * Focuses on aligning sequences to prepare for recombination breakpoint
+ * analysis, including amino acid sequence alignment and the construction
+ * of a corresponding codon alignment.
+ */
+workflow constructCodonAlignment {
+
+    take:
+    pfam
+    merged_aa_fasta_ch
+    merged_nt_fasta_ch
+
+    main:
+    pfam_hmm_ch = fetchPfamHMMProfile(pfam)
+    alignment_ch = alignSequencesToPfamHMM(merged_aa_fasta_ch, pfam_hmm_ch)
+    codon_alignment_ch = createCodonAlignment(alignment_ch, merged_nt_fasta_ch)
+
+    emit:
+    codon_alignment_ch
+
+}
+
+
+process detectRecombinationBreakpoints {
+
+    conda "conda.yml"
+    publishDir params.outdir, mode: 'copy'
+
+    input:
+    path codon_alignment
+    val threads
+
+    output:
+    path "${codon_alignment}.GARD.json"
+
+    script:
+    """
+    hyphy gard ${codon_alignment} CPU=${threads}
     """
 }
 
 /*
- * Get the PDB file from the PDB code.
+ * Subworkflow 3:
+ * =============
+ * Runs the GARD algorithm to detect recombination breakpoints
+ * in the prepared codon alignment.
  */
-process getPDBfile {
+workflow executeGardAnalysis {
+
+    take:
+    codon_alignment_ch
+    threads_ch
+
+    main:
+    gard_analysis_ch = detectRecombinationBreakpoints(codon_alignment_ch,
+                                                      threads_ch)
+
+    emit:
+    gard_analysis_ch
+
+}
+
+
+process downloadPDBStructure {
 
     publishDir params.outdir, mode: 'copy'
 
@@ -83,10 +275,7 @@ process getPDBfile {
     """
 }
 
-/*
- * Get the solved residues from the PDB file.
- */
-process getSolvedResidues {
+process extractSolvedResidues {
 
     conda "conda.yml"
     publishDir params.outdir, mode: 'copy'
@@ -104,95 +293,8 @@ process getSolvedResidues {
     """
 }
 
-/*
- * Get the HMM profile from the Pfam accession and save it in a file.
- */
-process getPfamHmm {
 
-    publishDir params.outdir, mode: 'copy'
-
-    input:
-    val pfam
-
-    output:
-    path "${pfam}.hmm"
-
-    script:
-    """
-    wget https://www.ebi.ac.uk/interpro/wwwapi//entry/pfam/${pfam}?annotation=hmm -O ${pfam}.hmm.gz \
-    && gunzip ${pfam}.hmm.gz
-    """
-}
-
-/*
- * Get the UniprotKB ID from the PDB code.
- */
-process pdb2UniProtID {
-
-    input:
-    val pdb
-
-    output:
-    stdout
-
-    script:
-    """
-    echo "${pdb[0..3]}" | ${scripts_dir}/pdb2UniProtID.sh
-    """
-}
-
-/*
- * Get the amino acid and nucleotide sequences from the PDB code.
- * Save them in two files: `pdb_aa.fasta` and `pdb_nt.fasta`.
- * Then, add the PDB code to the header of each sequence.
- */
-process pdbAaNt {
-
-    conda "conda.yml"
-    publishDir params.outdir, mode: 'copy'
-
-    input:
-    val uniprotIdFromPdb
-
-    output:
-    path "pdb_aa.fasta"
-    path "pdb_nt.fasta"
-
-    script:
-    """
-    echo "${uniprotIdFromPdb}" | ${scripts_dir}/id2aant.py -p "pdb_"
-    """
-}
-
-/*
- * Append the PDB amino acid and nucleotide sequences to the UniprotKB sequences.
- */
-process appendPdbAaNtToFasta {
-
-    publishDir params.outdir, mode: 'copy'
-
-    input:
-    path pdb_aa_fasta
-    path aa_fasta
-    path pdb_nt_fasta
-    path nt_fasta
-    val pdb
-
-    output:
-    path "aa_with_pdb.fasta"
-    path "nt_with_pdb.fasta"
-
-    script:
-    """
-    (cat $pdb_aa_fasta; echo; cat $aa_fasta) > aa_with_pdb.fasta &&
-    (cat $pdb_nt_fasta; echo; cat $nt_fasta) > nt_with_pdb.fasta
-    """
-}
-
-/*
- * Fetch CATH information about the domain architecture of the PDB protein.
- */
-process fetchCathInfo {
+process retrieveDomainArchitectureFromCATH {
 
     conda "conda.yml"
     publishDir params.outdir, mode: 'copy'
@@ -217,136 +319,56 @@ process fetchCathInfo {
 }
 
 /*
- * Align the amino acid sequences with the Pfam HMM profile.
+ * Subworkflow 4:
+ * =============
+ * Compares the GARD-detected recombination breakpoints against protein
+ * domain architectures retrieved from CATH.
  */
-process hmmAlign {
+workflow analyzeGardVsDomainArchitecture {
 
-    conda "conda.yml"
-    publishDir params.outdir, mode: 'copy'
+    take:
+    pdb_ch
+    gard_analysis_ch
 
-    input:
-    path aa_with_pdb_fasta
-    path pfam_hmm
+    main:
+    pdb_file_ch = downloadPDBStructure(pdb_ch)
+    solved_residues_ch = extractSolvedResidues(pdb_file_ch, pdb_ch)
 
-    output:
-    path "alignment.fasta"
+    cath_json_ch = retrieveDomainArchitectureFromCATH(pdb_ch)
 
-    script:
-    """
-    hmmalign --outformat afa ${pfam_hmm} ${aa_with_pdb_fasta} | sed 's/\\./-/g' > alignment.fasta
-    """
+
+    emit:
+    // Tempory
+    pdb_file_ch
+
 }
 
-/*
- * Build the codon alignment from the aligned amino acid sequences and the nucleotide sequences.
- */
-process pal2nal {
-
-    conda "conda.yml"
-    publishDir params.outdir, mode: 'copy'
-
-    input:
-    path alignment
-    path nt_with_pdb_fasta
-
-    output:
-    path "codon_alignment.fasta"
-
-    script:
-    """
-    pal2nal.pl ${alignment} ${nt_with_pdb_fasta} -output fasta -codontable 11 > codon_alignment.fasta
-    """
-}
-
-/*
- * Run the GARD algorithm to detect recombination breakpoints in the codon alignment.
- */
-process gard {
-
-    conda "conda.yml"
-    publishDir params.outdir, mode: 'copy'
-
-    input:
-    path codon_alignment
-    val threads
-
-    output:
-    path "${codon_alignment}.GARD.json"
-
-    script:
-    """
-    hyphy gard ${codon_alignment} CPU=${threads}
-    """
-}
 
 /*
  * Main workflow
+ * =============
  */
 workflow {
-    /*
-     * A) Take the list of UniprotKB IDs and generate 2 fasta files:
-     *    `aa.fasta`: Amino acid sequences, obtained from the UniprotKB database.
-     *    `nt.fasta`: Nucleotide sequences, obtained from the ENA database.
-     *
-     *    Fasta headers will appear as `>UniprotKBid_ENAid`.
-     */
+
     ids_ch = Channel.fromPath(params.ids, checkIfExists: true)
-    (aa_fasta_ch, nt_fasta_ch) = fastasFromUniprotIDs(ids_ch)
+    pdb_ch = Channel.of(params.pdb)
+    pfam_ch = Channel.of(params.pfam)
+    threads_ch = Channel.of(params.threads)
 
-    /*
-     * B) Take the PDB code and:
-     *    B.1) Download the PDB file.
-     *    B.2) Get the solved residues from the PDB file.
-     *    B.3) Fetch CATH information about the domain architecture of the PDB protein.
-     *    B.4) Get the UniprotKB ID from the PDB code.
-     *        B.4.a) Generate 2 fasta files with the amino acid and nucleotide
-     *               sequences from the PDB code.
-     *        B.4.b) Concatenate the PDB amino acid and nucleotide sequences to
-     *               the UniprotKB sequences.
-     */
-    pdb_ch = Channel.value(params.pdb)
-    // B.1
-    pdb_file_ch = getPDBfile(pdb_ch)
-    // B.2
-    solved_residues_ch = getSolvedResidues(pdb_file_ch, pdb_ch)
-    // B.3
-    cath_info_ch = fetchCathInfo(pdb_ch)
-    // B.4
-    uniProtIdFromPdb_ch = pdb2UniProtID(pdb_ch)
-    // B.4.a
-    (pdb_aa_fasta_ch, pdb_nt_fasta_ch) = pdbAaNt(uniProtIdFromPdb_ch)
-    // B.4.b
-    (aa_with_pdb_fasta_ch, nt_with_pdb_fasta_ch) = appendPdbAaNtToFasta(pdb_aa_fasta_ch,
-                                                                        aa_fasta_ch,
-                                                                        pdb_nt_fasta_ch,
-                                                                        nt_fasta_ch,
-                                                                        pdb_ch)
+    (merged_aa_fasta_ch, merged_nt_fasta_ch) = prepareSequenceData(ids_ch,
+                                                                   pdb_ch)
 
-    /*
-     * C) Take the Pfam accession and get the HMM profile.
-     */
-    pfam_ch = Channel.value(params.pfam)
-    pfam_hmm_ch = getPfamHmm(pfam_ch)
+    codon_alignment_ch = constructCodonAlignment(pfam_ch,
+                                                 merged_aa_fasta_ch,
+                                                 merged_nt_fasta_ch)
 
+    gard_analysis_ch = executeGardAnalysis(codon_alignment_ch, threads_ch)
 
-    /*
-     * D.1) Align the amino acid sequences with the Pfam HMM profile.
-     *
-     * D.2) Build the codon alignment from the aligned amino acid sequences
-     *      and the nucleotide sequences.
-     *
-     * D.3) Run the GARD algorithm to detect recombination breakpoints in the
-     *      codon alignment.
-     */
-    // D.1
-    alignment_ch = hmmAlign(aa_with_pdb_fasta_ch, pfam_hmm_ch)
-    // D.2
-    codon_alignment_ch = pal2nal(alignment_ch, nt_with_pdb_fasta_ch)
-    // D.3
-    gard(codon_alignment_ch, params.threads)
+    analyzeGardVsDomainArchitecture(pdb_ch, gard_analysis_ch)
 }
 
+
 workflow.onComplete {
-    log.info (workflow.success ? "coconut oil\n" : "Oops... something went wrong :(")
+    log.info (workflow.success ? "\ncoconut oil\n" : "Oops... something went wrong :(")
 }
 
